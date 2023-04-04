@@ -1,0 +1,11 @@
+#Python files
+__pycache__/
+*.py[cod]
+*$py.class
+
+#Log file
+app.log
+
+#Mongodb config file
+config/*.config
+
