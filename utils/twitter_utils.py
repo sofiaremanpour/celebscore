@@ -66,6 +66,8 @@ def rate_limit_safe(twitter_func):
 twitter_api = oauth_login()
 _user_lookup = rate_limit_safe(twitter_api.users.show)
 _users_lookup = rate_limit_safe(twitter_api.users.lookup)
+_followers_list = rate_limit_safe(twitter_api.followers.list)
+_followers_ids = rate_limit_safe(twitter_api.followers.ids)
 
 
 def get_users(handles=None, ids=None, attributes=None) -> List[Dict]:
@@ -85,3 +87,17 @@ def get_users(handles=None, ids=None, attributes=None) -> List[Dict]:
     screen_name_str = ",".join([i for i in ids])
     user_objects = _users_lookup(user_id=ids)
     return [{key: val for key, val in user.items() if key in attributes} for user in user_objects]
+
+
+def get_followers(id, limit=5000):
+    """
+    Returns the followers of the user with id
+    """
+    pass
+
+
+def get_followers_ids(id, limit=5000):
+    """
+    Returns the ids of followers of the user with id
+    """
+    pass
