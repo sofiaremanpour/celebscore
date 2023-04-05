@@ -31,25 +31,27 @@ class CelebrityHandler:
         return [i["handle"] for i in self.celebrities.find({"id": {"$exists": False}})]
 
 
-class DatabaseHandler:
-    def __init__(self):
-        """
-        Initializes the MongoDB connection and provides API's for interaction
-        """
-        logger.info("Reading database info from config")
-        with open("config/mongodb.config", "r") as f:
-            config = json.load(f)
-            db_username = config["username"]
-            db_password = config["password"]
-            # Connect to database
-            self.client = MongoClient(
-                f"mongodb+srv://{db_username}:{db_password}@celebscore.inxw4wt.mongodb.net")
-            self.db = self.client["CelebScoreData"]
-            logger.info("Pinging database")
-            result = self.client.admin.command('ping')
-            if not result["ok"]:
-                logger.error("Failed database connection")
-            else:
-                logger.info("Database ping successful")
+def connect_to_db():
+    """
+    Initializes the MongoDB connection and provides API's for interaction
+    """
+    logger.info("Reading database info from config")
+    with open("config/mongodb.config", "r") as f:
+        config = json.load(f)
+        db_username = config["username"]
+        db_password = config["password"]
+        # Connect to database
+        client = MongoClient(
+            f"mongodb+srv://{db_username}:{db_password}@celebscore.inxw4wt.mongodb.net")
+        logger.info("Pinging database")
+        result = client.admin.command('ping')
+        if not result["ok"]:
+            logger.error("Failed database connection")
+        else:
+            logger.info("Database ping successful")
+        return client
 
-        self.celebrity_handler = CelebrityHandler(self.db)
+
+client = connect_to_db()
+db = client["CelebScoreData"]
+celebrity_handler = CelebrityHandler(db)

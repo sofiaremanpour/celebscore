@@ -68,7 +68,7 @@ _user_lookup = rate_limit_safe(twitter_api.users.show)
 _users_lookup = rate_limit_safe(twitter_api.users.lookup)
 
 
-def get_users(handles=None, ids=None, attributes=None) -> List:
+def get_users(handles=None, ids=None, attributes=None) -> List[Dict]:
     """
     Return a list of user dicts for the users with their handle in handles or id in ids
     Optionally specify a list of strings that represent the attributes to return in the list
