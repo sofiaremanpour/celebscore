@@ -1,6 +1,6 @@
 from typing import Dict, List
 import twitter
-from logging_utils import logger
+from utils.logging_utils import logger
 import time
 import json
 

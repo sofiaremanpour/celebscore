@@ -1,6 +1,6 @@
 from pymongo import MongoClient
 import json
-from logging_utils import logger
+from utils.logging_utils import logger
 
 
 class CelebrityHandler:

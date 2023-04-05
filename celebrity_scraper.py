@@ -1,6 +1,6 @@
-from logging_utils import logger
-from twitter_utils import oauth_login, rate_limit_safe, get_users
-from database import DatabaseHandler
+from utils.logging_utils import logger
+from utils.twitter_utils import oauth_login, rate_limit_safe, get_users
+from utils.database import DatabaseHandler
 
 dbHandler = DatabaseHandler()
 
