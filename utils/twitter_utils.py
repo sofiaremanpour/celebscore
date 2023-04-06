@@ -1,8 +1,12 @@
-from typing import Dict, List
-import twitter
-from utils.logging_utils import logger
-import time
 import json
+import math
+import time
+from typing import Dict, List
+from urllib.parse import parse_qs, urlparse
+
+import twitter
+
+from utils.logging_utils import logger
 
 
 def oauth_login() -> twitter.Twitter:
@@ -27,6 +31,7 @@ def rate_limit_safe(twitter_func):
     A function decorator that will automatically retry the function if encountering rate limit
     Modified from cookbook function make_twitter_request - Decorators are much cleaner than partial application
     """
+
     def decorated(*args, **kwargs):
         # Run the attempted function, but retry when encoutering rate limit
         # Print all errors to a logger and exit if its not an error we can fix
@@ -46,20 +51,22 @@ def rate_limit_safe(twitter_func):
                 errors_left -= 1
                 if e.e.code == 429:
                     logger.error(
-                        f'Rate Limit Exceeded at {num_api_calls}, sleeping 15 mins')
-                    time.sleep(60*15 + 5)
+                        f"Rate Limit Exceeded at {num_api_calls}, sleeping 15 mins"
+                    )
+                    time.sleep(60 * 15 + 5)
                     logger.info("Retrying after rate limit")
                 else:
                     # If we get another error, retry
                     errors_left -= 1
                     logger.error(
-                        f"HTTP error code {e.e.code} encountered, retrying \nError:\n{repr(e)}")
+                        f"HTTP error code {e.e.code} encountered, retrying \nError:\n{repr(e)}"
+                    )
             except Exception as e:
                 # If its not an HTTP error, then just exit because something is wrong
-                logger.error(
-                    f"Other error encountered, exiting: {repr(e)}")
+                logger.error(f"Other error encountered, exiting: {repr(e)}")
                 break
         logger.error("Out of retries, exiting")
+
     return decorated
 
 
@@ -68,6 +75,7 @@ _user_lookup = rate_limit_safe(twitter_api.users.show)
 _users_lookup = rate_limit_safe(twitter_api.users.lookup)
 _followers_list = rate_limit_safe(twitter_api.followers.list)
 _followers_ids = rate_limit_safe(twitter_api.followers.ids)
+_search_tweets = rate_limit_safe(twitter_api.search.tweets)
 
 
 def get_users(handles=None, ids=None, attributes=None) -> List[Dict]:
@@ -83,21 +91,35 @@ def get_users(handles=None, ids=None, attributes=None) -> List[Dict]:
     if handles:
         screen_name_str = ",".join([i for i in handles])
         user_objects = _users_lookup(screen_name=screen_name_str)
-        return [{key: val for key, val in user.items() if key in attributes} for user in user_objects]
+        return [
+            {key: val for key, val in user.items() if key in attributes}
+            for user in user_objects
+        ]
     screen_name_str = ",".join([i for i in ids])
     user_objects = _users_lookup(user_id=ids)
-    return [{key: val for key, val in user.items() if key in attributes} for user in user_objects]
+    return [
+        {key: val for key, val in user.items() if key in attributes}
+        for user in user_objects
+    ]
 
 
-def get_followers(id, limit=5000):
+def get_search_results(query, limit=5000) -> List:
     """
-    Returns the followers of the user with id
+    Returns a list of tweets objects from the search of string
     """
-    pass
-
-
-def get_followers_ids(id, limit=5000):
-    """
-    Returns the ids of followers of the user with id
-    """
-    pass
+    # Store the tweets in a list
+    tweets = []
+    # Set max_id to be infinity, meaning we want the newest tweets first
+    max_id = math.inf
+    # Continue gathering tweets until we've reached the limit or twitter sets max_id to be 0
+    while len(tweets) < limit and max_id:
+        results = _search_tweets(
+            q=query, count=100, result_type="recent", max_id=max_id
+        )
+        tweets += results["statuses"]
+        parsed_args = parse_qs(
+            urlparse(results["search_metadata"]["next_results"]).query
+        )
+        max_id = int(parsed_args["max_id"][0])
+    logger.info(f"Retrieved {len(tweets)} tweets")
+    return tweets
