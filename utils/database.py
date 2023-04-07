@@ -1,6 +1,3 @@
-import json
-
-import certifi
 from pymongo import MongoClient, UpdateOne
 
 from utils.logging_utils import logger
@@ -43,12 +40,12 @@ class TweetsHandler:
         """
         Given the id, return a list of tweets
         """
-        return [
+        yield from (
             i["tweet"]
             for i in self.tweets.find(
                 {"celebrity_ids": {"$in": [celebrity_id]}}, {"tweet": 1}
             )
-        ]
+        )
 
     def _update_oldest_newest(self, celebrity_id):
         """
@@ -137,6 +134,22 @@ class CelebrityHandler:
         )
         if exists:
             return exists["oldest_tweet_id"]
+        return None
+
+    def set_sentiment(self, sentiment, celebrity_id):
+        """
+        Given a sentiment and celebrity_id, set the sentiment score in the database
+        """
+        return self.add_celebrity(id, sentiment=sentiment)
+
+    def get_sentiment(self, celebrity_id):
+        """
+        Given a celebrity id, return the current sentiment score in the database
+        If it doesn't exist, return None
+        """
+        exists = self.celebrities.find_one({"_id": id}, {"_id": 0, "sentiment": 1})
+        if exists:
+            return exists["sentiment"]
         return None
 
 
