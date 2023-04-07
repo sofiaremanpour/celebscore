@@ -99,19 +99,20 @@ def get_users(handles=None, ids=None, attributes=None) -> List[Dict]:
 
 def get_search_results(query, oldest_tweet_id=None, newest_tweet_id=None) -> List:
     """
-    Returns a list of tweets objects from the search of string
+    Generator that yields a batch of tweet objects from the search of string
     Only search more recently then the newest_tweet_id we have, and older than the oldest_tweet_id
+    Tweets are yielded in a way so that they are contigous from the tweets already gathered to prevent errors
     """
 
-    def search_helper(query, since_id=None, max_id=None):
+    def search_helper(query, since_id=None, max_id=None) -> List:
         """
         Perform a search of query from the max_id to the since_id
-        Return the tweets
+        Yield tweets in batches when doing so doesn't break the continuous interval
         """
         # Store the tweets in a list
-        tweets = []
         since_id = since_id if since_id else 0
-        max_id = max_id if max_id else math.inf
+        max_id = max_id - 1 if max_id else math.inf
+        tweets = []
         # Iterate until no more tweets
         while True:
             # Make the API call
@@ -122,39 +123,34 @@ def get_search_results(query, oldest_tweet_id=None, newest_tweet_id=None) -> Lis
                 since_id=since_id,
                 max_id=max_id,
             )
-
             # If we are out of tweets, stop
             new_tweets = tweet_data["statuses"]
-            if not new_tweets:
-                break
-            tweets += new_tweets
-            logger.info(
-                f"# Tweets: {len(tweets)}\tCurrent tweet time: {new_tweets[-1]['created_at']}"
-            )
+            # If we are searching after a certain date, only return the tweets at the end
+            if since_id:
+                if new_tweets:
+                    tweets += new_tweets
+                else:
+                    yield tweets
+                    return
+            else:
+                if new_tweets:
+                    yield new_tweets
+                else:
+                    return
             # Find what twitter says the next page of results is by identifying the max_id
             parsed_args = parse_qs(
                 urlparse(tweet_data["search_metadata"]["next_results"]).query
             )
             # Set the new max_id, thus the next iteration will be older tweets
             max_id = int(parsed_args["max_id"][0])
-        return tweets
 
-    assert (newest_tweet_id and oldest_tweet_id) or (
-        not newest_tweet_id and not oldest_tweet_id
+    # Perform a search from the oldest tweet available to the oldest_tweet_id in the db
+    logger.info(
+        f"Searching tweets: {query} from the oldest available to {oldest_tweet_id}"
     )
-    # Perform a search from the newest_tweet_id in db to the present
-    logger.info(f"Searching tweets: {query} from {newest_tweet_id} to the present")
-    newest_to_current = search_helper(query, since_id=newest_tweet_id)
-    oldest_to_older = []
-    if oldest_tweet_id:
-        # Perform a search from the oldest tweet available to the oldest_tweet_id in the db
-        logger.info(
-            f"Searching tweets: {query} from the oldest available to {oldest_tweet_id}"
-        )
-        oldest_to_older = search_helper(query, max_id=oldest_tweet_id)
-    tweets = newest_to_current + oldest_to_older
-    # Find the current oldest and newest tweet ids for the db
-    tweet_ids = [i["id"] for i in tweets]
-    oldest_tweet_id = min(tweet_ids)
-    newest_tweet_id = max(tweet_ids)
-    return tweets, oldest_tweet_id, newest_tweet_id
+    yield from search_helper(query, max_id=oldest_tweet_id)
+
+    if newest_tweet_id:
+        # Perform a search from the newest_tweet_id in db to the present
+        logger.info(f"Searching tweets: {query} from {newest_tweet_id} to the present")
+        yield from search_helper(query, since_id=newest_tweet_id)

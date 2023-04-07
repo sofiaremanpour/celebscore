@@ -52,15 +52,17 @@ def get_celebrities_tweets():
         # Find the current bounds of the tweets we have
         oldest_tweet_id = celebrity_handler.get_oldest_tweet_id(id)
         newest_tweet_id = celebrity_handler.get_newest_tweet_id(id)
-        # Gather the tweets, and update the list we got
-        tweets, oldest_tweet_id, newest_tweet_id = get_search_results(
+        for tweet_batch in get_search_results(
             handle, oldest_tweet_id=oldest_tweet_id, newest_tweet_id=newest_tweet_id
-        )
-        tweets_handler.add_tweets(tweets, id)
+        ):
+            logger.info(
+                f"# Batch of: {len(tweet_batch)}\tCurrent tweet time: {tweet_batch[-1]['created_at']}"
+            )
+            tweets_handler.add_tweets(tweet_batch, id)
 
 
 def main():
-    # update_celebrities_from_file()
+    update_celebrities_from_file()
     get_celebrities_tweets()
 
 

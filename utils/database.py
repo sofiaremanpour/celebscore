@@ -15,10 +15,11 @@ class TweetsHandler:
         Given a list of tweets,
         Add the tweets to the db
         """
-        assert tweets
-        # Define the list of operations
+        if not tweets:
+            return
+        # Define the list of operations to perform
         bulk_ops = []
-        # For each tweet, create an operation to add it
+        # For each tweet, create an operation to insert/update it
         for tweet in tweets:
             # Set the tweet data, and add the celebrity to the list of celebrities for that tweet
             tweet_update = UpdateOne(
@@ -30,7 +31,9 @@ class TweetsHandler:
                 upsert=True,
             )
             bulk_ops.append(tweet_update)
+            # Perform the bulk dump of tweets
         self.tweets.bulk_write(bulk_ops)
+        # Update our new bounds of tweet ids gathered
         self._update_oldest_newest(celebrity_id)
 
     def get_celebrities_tweets(self, celebrity_id):
@@ -100,7 +103,12 @@ class CelebrityHandler:
         """
         Returns a list of whatever attributes for all celebrities in the db
         """
-        return [i for i in self.celebrities.find({}, {key: 1 for key in attributes})]
+        if "_id" not in attributes:
+            attributes += "_id"
+        return sorted(
+            [i for i in self.celebrities.find({}, {key: 1 for key in attributes})],
+            key=lambda x: x["_id"],
+        )
 
     def get_newest_tweet_id(self, celebrity_id):
         """
