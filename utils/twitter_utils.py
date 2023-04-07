@@ -126,15 +126,15 @@ def get_search_results(query, oldest_tweet_id=None, newest_tweet_id=None) -> Lis
             # If we are out of tweets, stop
             new_tweets = tweet_data["statuses"]
             # If we are searching after a certain date, only return the tweets at the end
-            if since_id:
-                if new_tweets:
+            if new_tweets:
+                if since_id:
                     tweets += new_tweets
                 else:
+                    yield new_tweets
+            else:
+                if since_id:
                     yield tweets
                     return
-            else:
-                if new_tweets:
-                    yield new_tweets
                 else:
                     return
             # Find what twitter says the next page of results is by identifying the max_id

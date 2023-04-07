@@ -8,12 +8,18 @@ from utils.logging_utils import logger
 
 class TweetsHandler:
     def __init__(self, db):
+        """
+        Creates an instance. Perform add and get operations on tweets.
+        """
         self.tweets = db["Tweets"]
+        # Update the bounds of the current tweets for all celebrities (in case imported documents)
+        for celebrity in celebrity_handler.get_celebrities(["_id"]):
+            self._update_oldest_newest(celebrity["_id"])
 
     def add_tweets(self, tweets, celebrity_id):
         """
         Given a list of tweets,
-        Add the tweets to the db
+        Add or update the tweets to the db
         """
         if not tweets:
             return
@@ -49,7 +55,7 @@ class TweetsHandler:
 
     def _update_oldest_newest(self, celebrity_id):
         """
-        After inserting tweets, update the celebrities database with our current oldest and newest tweet ids
+        Update the celebrities database with our current oldest and newest tweet ids
         """
         # Get all tweets with the celebrity in their ids list
         pipeline = [
@@ -65,16 +71,20 @@ class TweetsHandler:
             },
         ]
         # Execute the aggregation pipeline and retrieve the result
-        result = list(self.tweets.aggregate(pipeline))[0]
+        result = list(self.tweets.aggregate(pipeline))
+        if result:
+            data = {
+                "$set": {
+                    "oldest_tweet_id": result[0]["oldest_tweet_id"],
+                    "newest_tweet_id": result[0]["newest_tweet_id"],
+                }
+            }
+        else:
+            data = {"$unset": {"oldest_tweet_id": "", "newest_tweet_id": ""}}
         # Store the minimum and maximum
         celebrity_handler.celebrities.update_one(
             {"_id": celebrity_id},
-            {
-                "$set": {
-                    "oldest_tweet_id": result["oldest_tweet_id"],
-                    "newest_tweet_id": result["newest_tweet_id"],
-                }
-            },
+            data,
             upsert=True,
         )
 
@@ -160,5 +170,5 @@ def connect_to_db():
 
 client = connect_to_db()
 db = client["CelebScoreData"]
-tweets_handler = TweetsHandler(db)
 celebrity_handler = CelebrityHandler(db)
+tweets_handler = TweetsHandler(db)

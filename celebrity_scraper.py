@@ -52,12 +52,14 @@ def get_celebrities_tweets():
         # Find the current bounds of the tweets we have
         oldest_tweet_id = celebrity_handler.get_oldest_tweet_id(id)
         newest_tweet_id = celebrity_handler.get_newest_tweet_id(id)
+        # Get a batch of tweets at a time, and add to database
         for tweet_batch in get_search_results(
             handle, oldest_tweet_id=oldest_tweet_id, newest_tweet_id=newest_tweet_id
         ):
-            logger.info(
-                f"# Batch of: {len(tweet_batch)}\tCurrent tweet time: {tweet_batch[-1]['created_at']}"
-            )
+            if tweet_batch:
+                logger.info(
+                    f"# Batch of: {len(tweet_batch)}\tCurrent tweet time: {tweet_batch[-1]['created_at']}"
+                )
             tweets_handler.add_tweets(tweet_batch, id)
 
 
