@@ -158,22 +158,23 @@ def connect_to_db():
     Initializes the MongoDB connection and provides API"s for interaction
     """
     logger.info("Reading database info from config")
-    with open("config/mongodb.config", "r") as f:
-        config = json.load(f)
-        db_username = config["username"]
-        db_password = config["password"]
-        # Connect to database
-        client = MongoClient(
-            f"mongodb+srv://{db_username}:{db_password}@celebscore.inxw4wt.mongodb.net",
-            tlsCAFile=certifi.where(),
-        )
-        logger.info("Pinging database")
-        result = client.admin.command("ping")
-        if not result["ok"]:
-            logger.error("Failed database connection")
-        else:
-            logger.info("Database ping successful")
-        return client
+    # with open("config/mongodb.config", "r") as f:
+    #     config = json.load(f)
+    #     db_username = config["username"]
+    #     db_password = config["password"]
+    #     # Connect to database
+    #     client = MongoClient(
+    #         f"mongodb+srv://{db_username}:{db_password}@celebscore.inxw4wt.mongodb.net",
+    #         tlsCAFile=certifi.where(),
+    #     )
+    client = MongoClient("mongodb://localhost:27017")
+    logger.info("Pinging database")
+    result = client.admin.command("ping")
+    if not result["ok"]:
+        logger.error("Failed database connection")
+    else:
+        logger.info("Database ping successful")
+    return client
 
 
 client = connect_to_db()
