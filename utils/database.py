@@ -1,6 +1,3 @@
-import json
-
-import certifi
 from pymongo import MongoClient, UpdateOne
 
 from utils.logging_utils import logger
@@ -8,17 +5,21 @@ from utils.logging_utils import logger
 
 class TweetsHandler:
     def __init__(self, db):
+        """
+        Creates an instance. Perform add and get operations on tweets.
+        """
         self.tweets = db["Tweets"]
 
     def add_tweets(self, tweets, celebrity_id):
         """
         Given a list of tweets,
-        Add the tweets to the db
+        Add or update the tweets to the db
         """
-        assert tweets
-        # Define the list of operations
+        if not tweets:
+            return
+        # Define the list of operations to perform
         bulk_ops = []
-        # For each tweet, create an operation to add it
+        # For each tweet, create an operation to insert/update it
         for tweet in tweets:
             # Set the tweet data, and add the celebrity to the list of celebrities for that tweet
             tweet_update = UpdateOne(
@@ -30,23 +31,25 @@ class TweetsHandler:
                 upsert=True,
             )
             bulk_ops.append(tweet_update)
+            # Perform the bulk dump of tweets
         self.tweets.bulk_write(bulk_ops)
+        # Update our new bounds of tweet ids gathered
         self._update_oldest_newest(celebrity_id)
 
     def get_celebrities_tweets(self, celebrity_id):
         """
         Given the id, return a list of tweets
         """
-        return [
+        yield from (
             i["tweet"]
             for i in self.tweets.find(
                 {"celebrity_ids": {"$in": [celebrity_id]}}, {"tweet": 1}
             )
-        ]
+        )
 
     def _update_oldest_newest(self, celebrity_id):
         """
-        After inserting tweets, update the celebrities database with our current oldest and newest tweet ids
+        Update the celebrities database with our current oldest and newest tweet ids
         """
         # Get all tweets with the celebrity in their ids list
         pipeline = [
@@ -62,16 +65,20 @@ class TweetsHandler:
             },
         ]
         # Execute the aggregation pipeline and retrieve the result
-        result = list(self.tweets.aggregate(pipeline))[0]
+        result = list(self.tweets.aggregate(pipeline))
+        if result:
+            data = {
+                "$set": {
+                    "oldest_tweet_id": result[0]["oldest_tweet_id"],
+                    "newest_tweet_id": result[0]["newest_tweet_id"],
+                }
+            }
+        else:
+            data = {"$unset": {"oldest_tweet_id": "", "newest_tweet_id": ""}}
         # Store the minimum and maximum
         celebrity_handler.celebrities.update_one(
             {"_id": celebrity_id},
-            {
-                "$set": {
-                    "oldest_tweet_id": result["oldest_tweet_id"],
-                    "newest_tweet_id": result["newest_tweet_id"],
-                }
-            },
+            data,
             upsert=True,
         )
 
@@ -80,7 +87,7 @@ class CelebrityHandler:
     def __init__(self, db):
         self.celebrities = db["Celebrities"]
 
-    def add_celebrity(self, id, handle=None, name=None):
+    def add_celebrity(self, id, handle=None, name=None, **kwargs):
         """
         Add a celebrity to the database. If one already exists with the same handle, update information
         """
@@ -91,6 +98,7 @@ class CelebrityHandler:
             data["handle"] = handle.lower()
         if name:
             data["name"] = name
+        data.update(kwargs)
         logger.info(f"Adding/updating celebrity: {data}")
         # Update the database entry by setting the new data
         res = self.celebrities.update_one({"_id": id}, {"$set": data}, upsert=True)
@@ -100,6 +108,8 @@ class CelebrityHandler:
         """
         Returns a list of whatever attributes for all celebrities in the db
         """
+        if "_id" not in attributes:
+            attributes += "_id"
         return [i for i in self.celebrities.find({}, {key: 1 for key in attributes})]
 
     def get_newest_tweet_id(self, celebrity_id):
@@ -124,6 +134,22 @@ class CelebrityHandler:
         )
         if exists:
             return exists["oldest_tweet_id"]
+        return None
+
+    def set_sentiment(self, sentiment, celebrity_id):
+        """
+        Given a sentiment and celebrity_id, set the sentiment score in the database
+        """
+        return self.add_celebrity(id, sentiment=sentiment)
+
+    def get_sentiment(self, celebrity_id):
+        """
+        Given a celebrity id, return the current sentiment score in the database
+        If it doesn't exist, return None
+        """
+        exists = self.celebrities.find_one({"_id": id}, {"_id": 0, "sentiment": 1})
+        if exists:
+            return exists["sentiment"]
         return None
 
 
@@ -152,5 +178,5 @@ def connect_to_db():
 
 client = connect_to_db()
 db = client["CelebScoreData"]
-tweets_handler = TweetsHandler(db)
 celebrity_handler = CelebrityHandler(db)
+tweets_handler = TweetsHandler(db)

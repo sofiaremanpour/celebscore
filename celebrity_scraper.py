@@ -26,7 +26,8 @@ def update_celebrities_from_file():
     logger.info(f"{new_handles}")
     # Gather the user objects for the celebrities
     celebrities = get_users(
-        handles=new_handles, attributes=["id_str", "name", "screen_name"]
+        handles=new_handles,
+        attributes=["id_str", "name", "screen_name", "followers_count"],
     )
     # Add each celebrity to the database
     for c in celebrities:
@@ -34,6 +35,7 @@ def update_celebrities_from_file():
             id=c["id_str"],
             handle=c["screen_name"],
             name=c["name"],
+            followers_count=c["followers_count"],
         )
 
 
@@ -44,7 +46,12 @@ def get_celebrities_tweets():
     and searches only for tweets older and what we have and newer than what we have
     """
     # Get the id and handle of each celebrity
-    celebrities = celebrity_handler.get_celebrities(["_id", "handle"])
+    celebrities = sorted(
+        celebrity_handler.get_celebrities(
+            ["_id", "handle", "followers_count"],
+        ),
+        key=lambda x: x["followers_count"],
+    )
     # For each celebrity
     for celebrity in celebrities:
         id = celebrity["_id"]
@@ -52,15 +59,19 @@ def get_celebrities_tweets():
         # Find the current bounds of the tweets we have
         oldest_tweet_id = celebrity_handler.get_oldest_tweet_id(id)
         newest_tweet_id = celebrity_handler.get_newest_tweet_id(id)
-        # Gather the tweets, and update the list we got
-        tweets, oldest_tweet_id, newest_tweet_id = get_search_results(
+        # Get a batch of tweets at a time, and add to database
+        for tweet_batch in get_search_results(
             handle, oldest_tweet_id=oldest_tweet_id, newest_tweet_id=newest_tweet_id
-        )
-        tweets_handler.add_tweets(tweets, id)
+        ):
+            if tweet_batch:
+                logger.info(
+                    f"# Batch of: {len(tweet_batch)}\tCurrent tweet time: {tweet_batch[-1]['created_at']}"
+                )
+            tweets_handler.add_tweets(tweet_batch, id)
 
 
 def main():
-    # update_celebrities_from_file()
+    update_celebrities_from_file()
     get_celebrities_tweets()
 
 
