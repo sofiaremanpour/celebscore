@@ -12,9 +12,6 @@ class TweetsHandler:
         Creates an instance. Perform add and get operations on tweets.
         """
         self.tweets = db["Tweets"]
-        # Update the bounds of the current tweets for all celebrities (in case imported documents)
-        for celebrity in celebrity_handler.get_celebrities(["_id"]):
-            self._update_oldest_newest(celebrity["_id"])
 
     def add_tweets(self, tweets, celebrity_id):
         """
@@ -93,7 +90,7 @@ class CelebrityHandler:
     def __init__(self, db):
         self.celebrities = db["Celebrities"]
 
-    def add_celebrity(self, id, handle=None, name=None):
+    def add_celebrity(self, id, handle=None, name=None, **kwargs):
         """
         Add a celebrity to the database. If one already exists with the same handle, update information
         """
@@ -104,6 +101,7 @@ class CelebrityHandler:
             data["handle"] = handle.lower()
         if name:
             data["name"] = name
+        data.update(kwargs)
         logger.info(f"Adding/updating celebrity: {data}")
         # Update the database entry by setting the new data
         res = self.celebrities.update_one({"_id": id}, {"$set": data}, upsert=True)
@@ -115,10 +113,7 @@ class CelebrityHandler:
         """
         if "_id" not in attributes:
             attributes += "_id"
-        return sorted(
-            [i for i in self.celebrities.find({}, {key: 1 for key in attributes})],
-            key=lambda x: x["_id"],
-        )
+        return [i for i in self.celebrities.find({}, {key: 1 for key in attributes})]
 
     def get_newest_tweet_id(self, celebrity_id):
         """

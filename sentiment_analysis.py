@@ -1,4 +1,5 @@
 from utils.database import tweets_handler, followers_handler, celebrity_handler
+
 # Sentiment analysis stuff goes here
 
 

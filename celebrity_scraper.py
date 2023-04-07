@@ -26,7 +26,8 @@ def update_celebrities_from_file():
     logger.info(f"{new_handles}")
     # Gather the user objects for the celebrities
     celebrities = get_users(
-        handles=new_handles, attributes=["id_str", "name", "screen_name"]
+        handles=new_handles,
+        attributes=["id_str", "name", "screen_name", "followers_count"],
     )
     # Add each celebrity to the database
     for c in celebrities:
@@ -34,6 +35,7 @@ def update_celebrities_from_file():
             id=c["id_str"],
             handle=c["screen_name"],
             name=c["name"],
+            followers_count=c["followers_count"],
         )
 
 
@@ -44,7 +46,12 @@ def get_celebrities_tweets():
     and searches only for tweets older and what we have and newer than what we have
     """
     # Get the id and handle of each celebrity
-    celebrities = celebrity_handler.get_celebrities(["_id", "handle"])
+    celebrities = sorted(
+        celebrity_handler.get_celebrities(
+            ["_id", "handle", "followers_count"],
+        ),
+        key=lambda x: x["followers_count"],
+    )
     # For each celebrity
     for celebrity in celebrities:
         id = celebrity["_id"]
