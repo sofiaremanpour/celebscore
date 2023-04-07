@@ -15,8 +15,12 @@ class TweetsHandler:
         Given a list of tweets,
         Add the tweets to the db
         """
+        assert tweets
+        # Define the list of operations
         bulk_ops = []
+        # For each tweet, create an operation to add it
         for tweet in tweets:
+            # Set the tweet data, and add the celebrity to the list of celebrities for that tweet
             tweet_update = UpdateOne(
                 {"_id": tweet["id_str"]},
                 {
@@ -26,8 +30,8 @@ class TweetsHandler:
                 upsert=True,
             )
             bulk_ops.append(tweet_update)
-        result = self.tweets.bulk_write(bulk_ops)
-        return result.matched_count == len(tweets)
+        self.tweets.bulk_write(bulk_ops)
+        self._update_oldest_newest(celebrity_id)
 
     def get_celebrities_tweets(self, celebrity_id):
         """
@@ -40,7 +44,36 @@ class TweetsHandler:
             )
         ]
 
-    # TODO write function to return the id of the newest tweet for a celebrity
+    def _update_oldest_newest(self, celebrity_id):
+        """
+        After inserting tweets, update the celebrities database with our current oldest and newest tweet ids
+        """
+        # Get all tweets with the celebrity in their ids list
+        pipeline = [
+            {"$match": {"celebrity_ids": celebrity_id}},
+            {"$project": {"tweet.id": 1}},
+            {"$unwind": "$tweet"},
+            {
+                "$group": {
+                    "_id": None,
+                    "oldest_tweet_id": {"$min": "$tweet.id"},
+                    "newest_tweet_id": {"$max": "$tweet.id"},
+                }
+            },
+        ]
+        # Execute the aggregation pipeline and retrieve the result
+        result = list(self.tweets.aggregate(pipeline))[0]
+        # Store the minimum and maximum
+        celebrity_handler.celebrities.update_one(
+            {"_id": celebrity_id},
+            {
+                "$set": {
+                    "oldest_tweet_id": result["oldest_tweet_id"],
+                    "newest_tweet_id": result["newest_tweet_id"],
+                }
+            },
+            upsert=True,
+        )
 
 
 class CelebrityHandler:
@@ -58,7 +91,6 @@ class CelebrityHandler:
             data["handle"] = handle.lower()
         if name:
             data["name"] = name
-
         logger.info(f"Adding/updating celebrity: {data}")
         # Update the database entry by setting the new data
         res = self.celebrities.update_one({"_id": id}, {"$set": data}, upsert=True)
@@ -69,6 +101,30 @@ class CelebrityHandler:
         Returns a list of whatever attributes for all celebrities in the db
         """
         return [i for i in self.celebrities.find({}, {key: 1 for key in attributes})]
+
+    def get_newest_tweet_id(self, celebrity_id):
+        """
+        Given a celebrity id, return the newest tweet id in the database
+        If it doesn't exist, return None
+        """
+        exists = self.celebrities.find_one(
+            {"_id": celebrity_id}, {"_id": 0, "newest_tweet_id": 1}
+        )
+        if exists:
+            return exists["newest_tweet_id"]
+        return None
+
+    def get_oldest_tweet_id(self, celebrity_id):
+        """
+        Given a celebrity id, return the oldest tweet id in the database
+        If it doesn't exist, return None
+        """
+        exists = self.celebrities.find_one(
+            {"_id": celebrity_id}, {"_id": 0, "oldest_tweet_id": 1}
+        )
+        if exists:
+            return exists["oldest_tweet_id"]
+        return None
 
 
 def connect_to_db():

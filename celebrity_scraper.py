@@ -12,10 +12,14 @@ def update_celebrities_from_file():
     """
     # Open the list of celebrities from the csv file
     celeb_data = pd.read_csv("most_followed_accounts.csv")
-    celeb_handles = list(celeb_data["handle"].astype("string"))
+    celeb_handles = [i.lower() for i in celeb_data["handle"].astype("string")]
     logger.info(f"Found {len(celeb_handles)} celebrities in file")
-    # Find the celebrities not already in the database
-    new_handles = celebrity_handler.get_missing_celebrities_handles(celeb_handles)
+    # Find the celebrities already in the database
+    current_handles = [
+        i["handle"] for i in celebrity_handler.get_celebrities(["handle"])
+    ]
+    # Calculate celebrities not already in the db
+    new_handles = [i for i in celeb_handles if i not in current_handles]
     logger.info(f"Looking up data for {len(new_handles)} new celebrities")
     if not new_handles:
         return
@@ -36,15 +40,22 @@ def update_celebrities_from_file():
 def get_celebrities_tweets():
     """
     Gets tweets from searching the handle of each celebrity and adds to database
+    Checks what tweets are already in the database,
+    and searches only for tweets older and what we have and newer than what we have
     """
+    # Get the id and handle of each celebrity
     celebrities = celebrity_handler.get_celebrities(["_id", "handle"])
+    # For each celebrity
     for celebrity in celebrities:
-        # TODO - record what tweets we already have and stop once we reach overlapping tweets
         id = celebrity["_id"]
         handle = celebrity["handle"]
-        logger.info(f"Searching for tweets about {handle}")
-        tweets = get_search_results(handle, limit=5000)
-        logger.info("Adding tweets to database")
+        # Find the current bounds of the tweets we have
+        oldest_tweet_id = celebrity_handler.get_oldest_tweet_id(id)
+        newest_tweet_id = celebrity_handler.get_newest_tweet_id(id)
+        # Gather the tweets, and update the list we got
+        tweets, oldest_tweet_id, newest_tweet_id = get_search_results(
+            handle, oldest_tweet_id=oldest_tweet_id, newest_tweet_id=newest_tweet_id
+        )
         tweets_handler.add_tweets(tweets, id)
 
 
