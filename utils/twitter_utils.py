@@ -1,8 +1,10 @@
+from datetime import datetime, timedelta
 import json
 import math
 import time
 from typing import Dict, List
 from urllib.parse import parse_qs, urlparse
+from tqdm import tqdm
 
 import twitter
 
@@ -51,7 +53,13 @@ def rate_limit_safe(twitter_func):
                     logger.error(
                         f"Rate Limit Exceeded at {num_api_calls}, sleeping 15 mins"
                     )
-                    time.sleep(60 * 15 + 5)
+                    start_sleep = datetime.now()
+                    for i in tqdm(range(0, 15 * 60 * 1000 + 5000), desc="sleep time"):
+                        # Sleep until the next whole second
+                        next_wake = start_sleep + timedelta(milliseconds=i + 1)
+                        duration = (next_wake - datetime.now()).total_seconds()
+                        if duration > 0:
+                            time.sleep(duration)
                     logger.info("Retrying after rate limit")
                 else:
                     # If we get another error, retry
@@ -145,12 +153,10 @@ def get_search_results(query, oldest_tweet_id=None, newest_tweet_id=None) -> Lis
             max_id = int(parsed_args["max_id"][0])
 
     # Perform a search from the oldest tweet available to the oldest_tweet_id in the db
-    logger.info(
-        f"Searching tweets: {query} from the oldest available to {oldest_tweet_id}"
-    )
+    logger.info(f"Searching: {query} from the oldest available to {oldest_tweet_id}")
     yield from search_helper(query, max_id=oldest_tweet_id)
 
     if newest_tweet_id:
         # Perform a search from the newest_tweet_id in db to the present
-        logger.info(f"Searching tweets: {query} from {newest_tweet_id} to the present")
+        logger.info(f"Searching: {query} from {newest_tweet_id} to the present")
         yield from search_helper(query, since_id=newest_tweet_id)
