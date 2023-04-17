@@ -10,10 +10,10 @@ class TweetsHandler:
         """
         self.tweets = db["Tweets"]
 
-    def add_tweets(self, tweets, celebrity_id):
+    def add_tweets(self, tweets, search_term):
         """
         Given a list of tweets,
-        Add or update the tweets to the db
+        Add or update the tweets to the db being associated with the search term
         """
         if not tweets:
             return
@@ -26,7 +26,7 @@ class TweetsHandler:
                 {"_id": tweet["id_str"]},
                 {
                     "$set": {"tweet": tweet, "author": tweet["user"]["id_str"]},
-                    "$addToSet": {"celebrity_ids": celebrity_id},
+                    "$addToSet": {"search_terms": search_term},
                 },
                 upsert=True,
             )
@@ -34,26 +34,47 @@ class TweetsHandler:
             # Perform the bulk dump of tweets
         self.tweets.bulk_write(bulk_ops)
         # Update our new bounds of tweet ids gathered
-        self._update_oldest_newest(celebrity_id)
+        self._update_oldest_newest(search_term)
 
-    def get_celebrities_tweets(self, celebrity_id):
+    def get_tweets(self, search_term):
         """
-        Given the id, return a list of tweets
+        Given the id, return a generator of tweets associated with the search_term
         """
         yield from (
             i["tweet"]
             for i in self.tweets.find(
-                {"celebrity_ids": {"$in": [celebrity_id]}}, {"tweet": 1}
+                {"search_terms": {"$in": [search_term]}}, {"tweet": 1}
             )
         )
 
-    def _update_oldest_newest(self, celebrity_id):
+    def set_sentiment(self, sentiment, tweet_id):
+        """
+        Given a sentiment and tweet_id, set the sentiment score in the database
+        """
+        result = self.tweets.update_one(
+            {"_id": tweet_id}, {"$set": {"sentiment": sentiment}}
+        )
+        return result.modified_count > 0
+
+    def get_sentiment(self, tweet_id):
+        """
+        Given a celebrity id and tweet_id, return the current sentiment score in the database
+        If it doesn't exist, return None
+        """
+        exists = self.celebrities.find_one(
+            {"_id": tweet_id}, {"_id": 0, "sentiment": 1}
+        )
+        if exists:
+            return exists["sentiment"]
+        return None
+
+    def _update_oldest_newest(self, search_term):
         """
         Update the celebrities database with our current oldest and newest tweet ids
         """
         # Get all tweets with the celebrity in their ids list
         pipeline = [
-            {"$match": {"celebrity_ids": celebrity_id}},
+            {"$match": {"search_terms": search_term}},
             {"$project": {"tweet.id": 1}},
             {"$unwind": "$tweet"},
             {
@@ -76,80 +97,61 @@ class TweetsHandler:
         else:
             data = {"$unset": {"oldest_tweet_id": "", "newest_tweet_id": ""}}
         # Store the minimum and maximum
-        celebrity_handler.celebrities.update_one(
-            {"_id": celebrity_id},
+        terms_handler.search_terms.update_one(
+            {"_id": search_term},
             data,
             upsert=True,
         )
 
 
-class CelebrityHandler:
+class SearchTermsHandler:
     def __init__(self, db):
-        self.celebrities = db["Celebrities"]
+        self.search_terms = db["SearchTerms"]
 
-    def add_celebrity(self, id, handle=None, name=None, **kwargs):
+    def add_term(self, search_term, **kwargs):
         """
-        Add a celebrity to the database. If one already exists with the same handle, update information
+        Add a term to the database. If entry already exists with the term, update information
         """
         # Store whatever we have available
-        # Store handles in lowercase always
-        data = {"_id": id}
-        if handle:
-            data["handle"] = handle.lower()
-        if name:
-            data["name"] = name
+        data = {"_id": search_term}
         data.update(kwargs)
-        logger.info(f"Adding/updating celebrity: {data}")
+        logger.info(f"Adding/updating search term: {data}")
         # Update the database entry by setting the new data
-        res = self.celebrities.update_one({"_id": id}, {"$set": data}, upsert=True)
+        res = self.search_terms.update_one(
+            {"_id": search_term}, {"$set": data}, upsert=True
+        )
         return True if res.modified_count else False
 
-    def get_celebrities(self, attributes):
+    def get_search_terms(self, attributes):
         """
         Returns a list of whatever attributes for all celebrities in the db
         """
         if "_id" not in attributes:
             attributes += "_id"
-        return [i for i in self.celebrities.find({}, {key: 1 for key in attributes})]
+        return [i for i in self.search_terms.find({}, {key: 1 for key in attributes})]
 
-    def get_newest_tweet_id(self, celebrity_id):
+    def get_newest_tweet_id(self, search_term):
         """
-        Given a celebrity id, return the newest tweet id in the database
+        Given a search term, return the newest tweet id in the database
         If it doesn't exist, return None
         """
-        exists = self.celebrities.find_one(
-            {"_id": celebrity_id}, {"_id": 0, "newest_tweet_id": 1}
+        exists = self.search_terms.find_one(
+            {"_id": search_term}, {"_id": 0, "newest_tweet_id": 1}
         )
         if exists:
             return exists["newest_tweet_id"]
         return None
 
-    def get_oldest_tweet_id(self, celebrity_id):
+    def get_oldest_tweet_id(self, search_term):
         """
-        Given a celebrity id, return the oldest tweet id in the database
+        Given a search term, return the oldest tweet id in the database
         If it doesn't exist, return None
         """
-        exists = self.celebrities.find_one(
-            {"_id": celebrity_id}, {"_id": 0, "oldest_tweet_id": 1}
+        exists = self.search_terms.find_one(
+            {"_id": search_term}, {"_id": 0, "oldest_tweet_id": 1}
         )
         if exists:
             return exists["oldest_tweet_id"]
-        return None
-
-    def set_sentiment(self, sentiment, celebrity_id):
-        """
-        Given a sentiment and celebrity_id, set the sentiment score in the database
-        """
-        return self.add_celebrity(id, sentiment=sentiment)
-
-    def get_sentiment(self, celebrity_id):
-        """
-        Given a celebrity id, return the current sentiment score in the database
-        If it doesn't exist, return None
-        """
-        exists = self.celebrities.find_one({"_id": id}, {"_id": 0, "sentiment": 1})
-        if exists:
-            return exists["sentiment"]
         return None
 
 
@@ -179,5 +181,5 @@ def connect_to_db():
 
 client = connect_to_db()
 db = client["CelebScoreData"]
-celebrity_handler = CelebrityHandler(db)
+terms_handler = SearchTermsHandler(db)
 tweets_handler = TweetsHandler(db)
