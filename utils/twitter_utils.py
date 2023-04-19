@@ -80,31 +80,33 @@ _followers_ids = rate_limit_safe(twitter_api.followers.ids)
 _search_tweets = rate_limit_safe(twitter_api.search.tweets)
 
 
-def get_users(
-    handles: str = None, ids: str | int = None, attributes: list[str] = None
-) -> list[dict]:
-    """
-    Return a list of user dicts for the users with their handle in handles or id in ids
-    Optionally specify a list of strings that represent the attributes to return in the list
-    Ex: get_users(handles=["Oprah", "NBA"], attributes=["id_str", "followers_count"])
-        Returns [{"id_str": "....", "followers_count": 1000000}, ...]
-    """
-    # We must have either handles or ids, but not both
-    assert (handles and not ids) or (not handles and ids)
+# def get_users(
+#     handles: Optional[str] = None,
+#     ids: Optional[str | int] = None,
+#     attributes: Optional[list[str]] = None,
+# ) -> list[dict]:
+#     """
+#     Return a list of user dicts for the users with their handle in handles or id in ids
+#     Optionally specify a list of strings that represent the attributes to return in the list
+#     Ex: get_users(handles=["Oprah", "NBA"], attributes=["id_str", "followers_count"])
+#         Returns [{"id_str": "....", "followers_count": 1000000}, ...]
+#     """
+#     # We must have either handles or ids, but not both
+#     assert (handles and not ids) or (not handles and ids)
 
-    if handles:
-        screen_name_str = ",".join([i for i in handles])
-        user_objects = _users_lookup(screen_name=screen_name_str)
-        return [
-            {key: val for key, val in user.items() if key in attributes}
-            for user in user_objects
-        ]
-    screen_name_str = ",".join([i for i in ids])
-    user_objects = _users_lookup(user_id=ids)
-    return [
-        {key: val for key, val in user.items() if key in attributes}
-        for user in user_objects
-    ]
+#     if handles:
+#         screen_name_str = ",".join([i for i in handles])
+#         user_objects = _users_lookup(screen_name=screen_name_str)
+#         return [
+#             {key: val for key, val in user.items() if key in attributes}
+#             for user in user_objects
+#         ]
+#     screen_name_str = ",".join([i for i in ids])
+#     user_objects = _users_lookup(user_id=ids)
+#     return [
+#         {key: val for key, val in user.items() if key in attributes}
+#         for user in user_objects
+#     ]
 
 
 def get_search_results(
@@ -115,11 +117,11 @@ def get_search_results(
     """
     Generator that yields a batch of tweet objects from the search of string
     Only search more recently then the newest_tweet_id we have, and older than the oldest_tweet_id
-    Tweets are yielded in a way so that they are contigous from the tweets already gathered to prevent errors
+    Tweets are yielded in a way so that they are contiguous from the tweets already gathered to prevent errors
     """
 
     def search_helper(
-        query: str, since_id: Optional[int] = None, max_id: Optional[int] = None
+        query: str, since_id: Optional[int] = None, max_id: Optional[int | float] = None
     ) -> Iterator[list[dict]]:
         """
         Perform a search of query from the max_id to the since_id

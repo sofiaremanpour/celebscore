@@ -1,4 +1,4 @@
-from typing import Iterator
+from typing import Iterator, Optional
 
 from pymongo import MongoClient, UpdateOne
 from pymongo.collection import Collection
@@ -40,15 +40,18 @@ class TweetsHandler:
         # Update our new bounds of tweet ids gathered
         self._update_oldest_newest(search_term)
 
-    def get_tweets(self, search_term: str) -> Iterator[dict]:
+    def get_tweets(
+        self, search_term: str, attributes: Optional[list[str]] = None
+    ) -> Iterator[list[dict]]:
         """
         Given the id, return a generator of tweets associated with the search_term
         """
-        yield from (
-            i["tweet"]
-            for i in self.tweets.find(
-                {"search_terms": {"$in": [search_term]}}, {"tweet": 1}
-            )
+        if attributes is None:
+            attributes = []
+        if "_id" not in attributes:
+            attributes += "_id"
+        yield from self.tweets.find(
+            {"search_terms": {"$in": [search_term]}}, {key: 1 for key in attributes}
         )
 
     def set_sentiment(
@@ -67,9 +70,7 @@ class TweetsHandler:
         Given a celebrity id and tweet_id, return the current sentiment score in the database
         If it doesn't exist, return None
         """
-        exists = self.celebrities.find_one(
-            {"_id": tweet_id}, {"_id": 0, "sentiment": 1}
-        )
+        exists = self.tweets.find_one({"_id": tweet_id}, {"_id": 0, "sentiment": 1})
         if exists:
             return exists["sentiment"]
         return None
@@ -128,15 +129,17 @@ class SearchTermsHandler:
         )
         return bool(res.modified_count)
 
-    def get_search_terms(self, attributes: list[str]) -> list[dict]:
+    def get_search_terms(self, attributes: Optional[list[str]] = None) -> list[dict]:
         """
-        Returns a list of whatever attributes for all celebrities in the db
+        Returns a list of whatever attributes for all terms in the db
         """
+        if attributes is None:
+            attributes = []
         if "_id" not in attributes:
             attributes += "_id"
         return [i for i in self.search_terms.find({}, {key: 1 for key in attributes})]
 
-    def get_newest_tweet_id(self, search_term: str) -> int:
+    def get_newest_tweet_id(self, search_term: str) -> Optional[int]:
         """
         Given a search term, return the newest tweet id in the database
         If it doesn't exist, return None
@@ -148,7 +151,7 @@ class SearchTermsHandler:
             return exists["newest_tweet_id"]
         return None
 
-    def get_oldest_tweet_id(self, search_term: str) -> int:
+    def get_oldest_tweet_id(self, search_term: str) -> Optional[int]:
         """
         Given a search term, return the oldest tweet id in the database
         If it doesn't exist, return None
