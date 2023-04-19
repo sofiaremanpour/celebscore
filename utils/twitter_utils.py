@@ -1,12 +1,12 @@
-from datetime import datetime, timedelta
 import json
 import math
 import time
-from typing import Dict, List
+from datetime import datetime, timedelta
+from typing import Callable, Iterator, Optional
 from urllib.parse import parse_qs, urlparse
-from tqdm import tqdm
 
 import twitter
+from tqdm import tqdm
 
 from utils.logging_utils import logger
 
@@ -17,7 +17,7 @@ def oauth_login() -> twitter.Twitter:
     Create a twitter API object using keys stored in config
     """
     with open("config/api_keys.config", "r") as f:
-        config = json.load(f)
+        config: dict = json.load(f)
 
     auth = twitter.oauth.OAuth(**config)
 
@@ -28,7 +28,7 @@ def oauth_login() -> twitter.Twitter:
 num_api_calls = 0
 
 
-def rate_limit_safe(twitter_func):
+def rate_limit_safe(twitter_func: Callable) -> Callable:
     """
     A function decorator that will automatically retry the function if encountering rate limit
     Modified from cookbook function make_twitter_request - Decorators are much cleaner than partial application
@@ -80,7 +80,9 @@ _followers_ids = rate_limit_safe(twitter_api.followers.ids)
 _search_tweets = rate_limit_safe(twitter_api.search.tweets)
 
 
-def get_users(handles=None, ids=None, attributes=None) -> List[Dict]:
+def get_users(
+    handles: str = None, ids: str | int = None, attributes: list[str] = None
+) -> list[dict]:
     """
     Return a list of user dicts for the users with their handle in handles or id in ids
     Optionally specify a list of strings that represent the attributes to return in the list
@@ -105,14 +107,20 @@ def get_users(handles=None, ids=None, attributes=None) -> List[Dict]:
     ]
 
 
-def get_search_results(query, oldest_tweet_id=None, newest_tweet_id=None) -> List:
+def get_search_results(
+    query: str,
+    oldest_tweet_id: Optional[int] = None,
+    newest_tweet_id: Optional[int] = None,
+) -> Iterator[list[dict]]:
     """
     Generator that yields a batch of tweet objects from the search of string
     Only search more recently then the newest_tweet_id we have, and older than the oldest_tweet_id
     Tweets are yielded in a way so that they are contigous from the tweets already gathered to prevent errors
     """
 
-    def search_helper(query, since_id=None, max_id=None) -> List:
+    def search_helper(
+        query: str, since_id: Optional[int] = None, max_id: Optional[int] = None
+    ) -> Iterator[list[dict]]:
         """
         Perform a search of query from the max_id to the since_id
         Yield tweets in batches when doing so doesn't break the continuous interval

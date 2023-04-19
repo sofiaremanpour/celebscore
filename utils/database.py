@@ -1,16 +1,20 @@
+from typing import Iterator
+
 from pymongo import MongoClient, UpdateOne
+from pymongo.collection import Collection
+from pymongo.database import Database
 
 from utils.logging_utils import logger
 
 
 class TweetsHandler:
-    def __init__(self, db):
+    def __init__(self, db: Database):
         """
         Creates an instance. Perform add and get operations on tweets.
         """
-        self.tweets = db["Tweets"]
+        self.tweets: Collection = db["Tweets"]
 
-    def add_tweets(self, tweets, search_term):
+    def add_tweets(self, tweets: list[dict], search_term: str) -> None:
         """
         Given a list of tweets,
         Add or update the tweets to the db being associated with the search term
@@ -18,7 +22,7 @@ class TweetsHandler:
         if not tweets:
             return
         # Define the list of operations to perform
-        bulk_ops = []
+        bulk_ops: list[UpdateOne] = []
         # For each tweet, create an operation to insert/update it
         for tweet in tweets:
             # Set the tweet data, and add the celebrity to the list of celebrities for that tweet
@@ -36,7 +40,7 @@ class TweetsHandler:
         # Update our new bounds of tweet ids gathered
         self._update_oldest_newest(search_term)
 
-    def get_tweets(self, search_term):
+    def get_tweets(self, search_term: str) -> Iterator[dict]:
         """
         Given the id, return a generator of tweets associated with the search_term
         """
@@ -47,7 +51,9 @@ class TweetsHandler:
             )
         )
 
-    def set_sentiment(self, sentiment, tweet_id):
+    def set_sentiment(
+        self, sentiment, tweet_id: str
+    ) -> bool:  # TODO add sentiment type
         """
         Given a sentiment and tweet_id, set the sentiment score in the database
         """
@@ -56,7 +62,7 @@ class TweetsHandler:
         )
         return result.modified_count > 0
 
-    def get_sentiment(self, tweet_id):
+    def get_sentiment(self, tweet_id: str):  # TODO add sentiment return type
         """
         Given a celebrity id and tweet_id, return the current sentiment score in the database
         If it doesn't exist, return None
@@ -68,7 +74,7 @@ class TweetsHandler:
             return exists["sentiment"]
         return None
 
-    def _update_oldest_newest(self, search_term):
+    def _update_oldest_newest(self, search_term: str) -> None:
         """
         Update the celebrities database with our current oldest and newest tweet ids
         """
@@ -105,10 +111,10 @@ class TweetsHandler:
 
 
 class SearchTermsHandler:
-    def __init__(self, db):
-        self.search_terms = db["SearchTerms"]
+    def __init__(self, db: Database):
+        self.search_terms: Collection = db["SearchTerms"]
 
-    def add_term(self, search_term, **kwargs):
+    def add_term(self, search_term: str, **kwargs) -> bool:
         """
         Add a term to the database. If entry already exists with the term, update information
         """
@@ -120,9 +126,9 @@ class SearchTermsHandler:
         res = self.search_terms.update_one(
             {"_id": search_term}, {"$set": data}, upsert=True
         )
-        return True if res.modified_count else False
+        return bool(res.modified_count)
 
-    def get_search_terms(self, attributes):
+    def get_search_terms(self, attributes: list[str]) -> list[dict]:
         """
         Returns a list of whatever attributes for all celebrities in the db
         """
@@ -130,7 +136,7 @@ class SearchTermsHandler:
             attributes += "_id"
         return [i for i in self.search_terms.find({}, {key: 1 for key in attributes})]
 
-    def get_newest_tweet_id(self, search_term):
+    def get_newest_tweet_id(self, search_term: str) -> int:
         """
         Given a search term, return the newest tweet id in the database
         If it doesn't exist, return None
@@ -142,7 +148,7 @@ class SearchTermsHandler:
             return exists["newest_tweet_id"]
         return None
 
-    def get_oldest_tweet_id(self, search_term):
+    def get_oldest_tweet_id(self, search_term: str) -> int:
         """
         Given a search term, return the oldest tweet id in the database
         If it doesn't exist, return None
@@ -155,7 +161,7 @@ class SearchTermsHandler:
         return None
 
 
-def connect_to_db():
+def connect_to_db() -> MongoClient:
     """
     Initializes the MongoDB connection and provides API"s for interaction
     """
