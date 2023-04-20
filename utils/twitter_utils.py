@@ -61,12 +61,12 @@ def rate_limit_safe(twitter_func: Callable) -> Callable:
                     elapsed = int((datetime.now() - limit_start).total_seconds())
                     # Sleep (15 minutes - maintence time)
                     for i in trange(
-                        elapsed * 1000,
-                        (15 * 60) * 1000 + 5000,
+                        elapsed,
+                        (15 * 60) + 5,
                         desc="sleep time",
                     ):
                         # Sleep until the next whole second
-                        next_wake = limit_start + timedelta(milliseconds=i + 1)
+                        next_wake = limit_start + timedelta(seconds=i + 1)
                         duration = (next_wake - datetime.now()).total_seconds()
                         if duration > 0:
                             time.sleep(duration)

@@ -10,3 +10,4 @@ app.log
 config/*.config
 
 .vscode/settings.json
+map_coords.pickle

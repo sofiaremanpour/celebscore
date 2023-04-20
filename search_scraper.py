@@ -1,3 +1,5 @@
+import random
+
 import pandas as pd
 
 from utils.database import terms_handler, tweets_handler
@@ -11,8 +13,10 @@ def update_terms_from_file():
     Finds the ones not in the db, and adds to db
     """
     # Open the list of search terms from the csv file
-    search_data = pd.read_csv("search_terms.csv")
-    search_terms = list(search_data["term"].astype("string"))
+    search_data = pd.read_csv("search_terms.csv", index_col=False)
+    main_terms = list(search_data["term"].astype("string"))
+    alt_terms = list(search_data["alt_term"].astype("string"))
+    search_terms = main_terms + alt_terms
     logger.info(f"Found {len(search_terms)} search terms in file")
     # Add to database
     for i in search_terms:
@@ -27,6 +31,7 @@ def search_terms_get_tweets():
     """
     # Get the data for each term
     terms = terms_handler.get_search_terms(["oldest_tweet_id", "newest_tweet_id"])
+    random.shuffle(terms)
     # For each term, create a tweet iterator that will get batches of tweets
     for t in terms:
         # Find the current bounds of the tweets we have
