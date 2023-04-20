@@ -6,8 +6,9 @@ from typing import Callable, Iterator, Optional
 from urllib.parse import parse_qs, urlparse
 
 import twitter
-from tqdm import tqdm
+from tqdm import trange
 
+from utils.database import tweets_handler
 from utils.logging_utils import logger
 
 
@@ -51,12 +52,21 @@ def rate_limit_safe(twitter_func: Callable) -> Callable:
                 # If we get a rate limit, sleep and try again
                 if e.e.code == 429:
                     logger.error(
-                        f"Rate Limit Exceeded at {num_api_calls}, sleeping 15 mins"
+                        f"Rate Limit Exceeded at {num_api_calls}, performing database maintenance"
                     )
-                    start_sleep = datetime.now()
-                    for i in tqdm(range(0, 15 * 60 * 1000 + 5000), desc="sleep time"):
+                    # Mark the start time
+                    limit_start = datetime.now()
+                    # Perform database maintence and mark tweets already gotten
+                    tweets_handler.update_all_oldest_newest()
+                    elapsed = int((datetime.now() - limit_start).total_seconds())
+                    # Sleep (15 minutes - maintence time)
+                    for i in trange(
+                        elapsed * 1000,
+                        (15 * 60) * 1000 + 5000,
+                        desc="sleep time",
+                    ):
                         # Sleep until the next whole second
-                        next_wake = start_sleep + timedelta(milliseconds=i + 1)
+                        next_wake = limit_start + timedelta(milliseconds=i + 1)
                         duration = (next_wake - datetime.now()).total_seconds()
                         if duration > 0:
                             time.sleep(duration)

@@ -1,8 +1,10 @@
-from typing import Iterator, Optional
+from typing import Optional
 
 from pymongo import MongoClient, UpdateOne
 from pymongo.collection import Collection
+from pymongo.cursor import Cursor
 from pymongo.database import Database
+from tqdm import tqdm
 
 from utils.logging_utils import logger
 
@@ -37,20 +39,19 @@ class TweetsHandler:
             bulk_ops.append(tweet_update)
             # Perform the bulk dump of tweets
         self.tweets.bulk_write(bulk_ops)
-        # Update our new bounds of tweet ids gathered
-        self._update_oldest_newest(search_term)
 
     def get_tweets(
         self, search_term: str, attributes: Optional[list[str]] = None
-    ) -> Iterator[list[dict]]:
+    ) -> Cursor:
         """
-        Given the id, return a generator of tweets associated with the search_term
+        Given the id, return a generator of tweet documents associated with the search_term
+        Optionally specify other info in the document to return as well
         """
         if attributes is None:
             attributes = []
-        if "_id" not in attributes:
-            attributes += "_id"
-        yield from self.tweets.find(
+        if "tweet" not in attributes:
+            attributes.append("tweet")
+        return self.tweets.find(
             {"search_terms": {"$in": [search_term]}}, {key: 1 for key in attributes}
         )
 
@@ -75,9 +76,19 @@ class TweetsHandler:
             return exists["sentiment"]
         return None
 
+    def update_all_oldest_newest(self) -> None:
+        """
+        Update all terms with their oldest and newest tweet ids
+        """
+        for term in tqdm(
+            terms_handler.get_search_terms(), desc="Finding tweets already in database"
+        ):
+            # Update our new bounds of tweet ids gathered
+            self._update_oldest_newest(term["_id"])
+
     def _update_oldest_newest(self, search_term: str) -> None:
         """
-        Update the celebrities database with our current oldest and newest tweet ids
+        Update the terms database with our current oldest and newest tweet ids
         """
         # Get all tweets with the celebrity in their ids list
         pipeline = [
@@ -115,14 +126,12 @@ class SearchTermsHandler:
     def __init__(self, db: Database):
         self.search_terms: Collection = db["SearchTerms"]
 
-    def add_term(self, search_term: str, **kwargs) -> bool:
+    def add_term(self, search_term: str) -> bool:
         """
         Add a term to the database. If entry already exists with the term, update information
         """
         # Store whatever we have available
         data = {"_id": search_term}
-        data.update(kwargs)
-        logger.info(f"Adding/updating search term: {data}")
         # Update the database entry by setting the new data
         res = self.search_terms.update_one(
             {"_id": search_term}, {"$set": data}, upsert=True
@@ -131,37 +140,13 @@ class SearchTermsHandler:
 
     def get_search_terms(self, attributes: Optional[list[str]] = None) -> list[dict]:
         """
-        Returns a list of whatever attributes for all terms in the db
+        Returns a list of terms in the database, optionally getting other values from the document
         """
         if attributes is None:
             attributes = []
         if "_id" not in attributes:
             attributes += "_id"
         return [i for i in self.search_terms.find({}, {key: 1 for key in attributes})]
-
-    def get_newest_tweet_id(self, search_term: str) -> Optional[int]:
-        """
-        Given a search term, return the newest tweet id in the database
-        If it doesn't exist, return None
-        """
-        exists = self.search_terms.find_one(
-            {"_id": search_term}, {"_id": 0, "newest_tweet_id": 1}
-        )
-        if exists:
-            return exists["newest_tweet_id"]
-        return None
-
-    def get_oldest_tweet_id(self, search_term: str) -> Optional[int]:
-        """
-        Given a search term, return the oldest tweet id in the database
-        If it doesn't exist, return None
-        """
-        exists = self.search_terms.find_one(
-            {"_id": search_term}, {"_id": 0, "oldest_tweet_id": 1}
-        )
-        if exists:
-            return exists["oldest_tweet_id"]
-        return None
 
 
 def connect_to_db() -> MongoClient:

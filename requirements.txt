@@ -3,3 +3,6 @@ pymongo
 twitter
 pandas
 certifi
+tqdm
+folium
+numpy
