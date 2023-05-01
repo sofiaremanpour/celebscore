@@ -6,3 +6,6 @@ certifi
 tqdm
 folium
 numpy
+transformers
+scipy
+selenium

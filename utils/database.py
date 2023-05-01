@@ -15,6 +15,10 @@ class TweetsHandler:
         Creates an instance. Perform add and get operations on tweets.
         """
         self.tweets: Collection = db["Tweets"]
+        # uncomment to clear sentiments
+        self.tweets.update_many(
+            {"sentiment": {"$exists": True}}, {"$unset": {"sentiment": None}}
+        )
 
     def add_tweets(self, tweets: list[dict], search_term: str) -> None:
         """
@@ -40,11 +44,17 @@ class TweetsHandler:
             # Perform the bulk dump of tweets
         self.tweets.bulk_write(bulk_ops)
 
+    def get_tweet_count(self, search_terms: tuple[str, str]) -> Optional[int]:
+        """
+        Return the total number of tweets for a search term, otherwise none
+        """
+        return self.tweets.count_documents({"search_terms": {"$in": search_terms}})
+
     def get_tweets(
-        self, search_term: str, attributes: Optional[list[str]] = None
+        self, search_terms: tuple[str, str], attributes: Optional[list[str]] = None
     ) -> Cursor:
         """
-        Given the id, return a generator of tweet documents associated with the search_term
+        Given the id, return a generator of tweet documents associated with a list of search_terms
         Optionally specify other info in the document to return as well
         """
         if attributes is None:
@@ -52,12 +62,10 @@ class TweetsHandler:
         if "tweet" not in attributes:
             attributes.append("tweet")
         return self.tweets.find(
-            {"search_terms": {"$in": [search_term]}}, {key: 1 for key in attributes}
+            {"search_terms": {"$in": search_terms}}, {key: 1 for key in attributes}
         )
 
-    def set_sentiment(
-        self, sentiment, tweet_id: str
-    ) -> bool:  # TODO add sentiment type
+    def set_sentiment(self, sentiment: dict, tweet_id: str) -> bool:
         """
         Given a sentiment and tweet_id, set the sentiment score in the database
         """
@@ -66,9 +74,9 @@ class TweetsHandler:
         )
         return result.modified_count > 0
 
-    def get_sentiment(self, tweet_id: str):  # TODO add sentiment return type
+    def get_sentiment(self, tweet_id: str) -> Optional[dict]:
         """
-        Given a celebrity id and tweet_id, return the current sentiment score in the database
+        Given a tweet_id, return the current sentiment score in the database
         If it doesn't exist, return None
         """
         exists = self.tweets.find_one({"_id": tweet_id}, {"_id": 0, "sentiment": 1})
@@ -124,6 +132,9 @@ class TweetsHandler:
 
 class SearchTermsHandler:
     def __init__(self, db: Database):
+        """
+        Create an instance. Add and retrieve search terms and associated data
+        """
         self.search_terms: Collection = db["SearchTerms"]
 
     def add_term(self, search_term: str) -> bool:
@@ -146,14 +157,14 @@ class SearchTermsHandler:
             attributes = []
         if "_id" not in attributes:
             attributes += "_id"
-        return [i for i in self.search_terms.find({}, {key: 1 for key in attributes})]
+        return list(self.search_terms.find({}, {key: 1 for key in attributes}))
 
 
 def connect_to_db() -> MongoClient:
     """
     Initializes the MongoDB connection and provides API"s for interaction
     """
-    logger.info("Reading database info from config")
+    # logger.info("Reading database info from config")
     # with open("config/mongodb.config", "r") as f:
     #     config = json.load(f)
     #     db_username = config["username"]
@@ -163,7 +174,7 @@ def connect_to_db() -> MongoClient:
     #         f"mongodb+srv://{db_username}:{db_password}@celebscore.inxw4wt.mongodb.net",
     #         tlsCAFile=certifi.where(),
     #     )
-    client = MongoClient("mongodb://localhost:27017")
+    client = MongoClient("mongodb://127.0.0.1:27017")
     logger.info("Pinging database")
     result = client.admin.command("ping")
     if not result["ok"]:
