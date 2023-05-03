@@ -1,24 +1,35 @@
+from typing import Sequence
+
 from pymongo import MongoClient, UpdateOne
+from pymongo.collection import Collection
+from pymongo.cursor import Cursor
+from pymongo.database import Database
+from tqdm import tqdm
 
 from utils.logging_utils import logger
 
 
 class TweetsHandler:
-    def __init__(self, db):
+    def __init__(self, db: Database):
         """
         Creates an instance. Perform add and get operations on tweets.
         """
-        self.tweets = db["Tweets"]
+        self.tweets: Collection = db["Tweets"]
+        # uncomment to clear sentiments
+        # self.tweets.update_many(
+        #     {"sentiment": {"$exists": True}}, {"$unset": {"sentiment": None}}
+        # )
 
-    def add_tweets(self, tweets, search_term):
+    def add_tweets(self, tweets: list[dict], search_term: str) -> None:
         """
         Given a list of tweets,
-        Add or update the tweets to the db being associated with the search term
+        Add or update the tweets to the database
+        Add the search_term to the list of serach_terms for each tweet
         """
         if not tweets:
             return
         # Define the list of operations to perform
-        bulk_ops = []
+        bulk_ops: list[UpdateOne] = []
         # For each tweet, create an operation to insert/update it
         for tweet in tweets:
             # Set the tweet data, and add the celebrity to the list of celebrities for that tweet
@@ -31,48 +42,71 @@ class TweetsHandler:
                 upsert=True,
             )
             bulk_ops.append(tweet_update)
-            # Perform the bulk dump of tweets
+        # Perform the bulk dump of tweets
         self.tweets.bulk_write(bulk_ops)
-        # Update our new bounds of tweet ids gathered
-        self._update_oldest_newest(search_term)
 
-    def get_tweets(self, search_term):
+    def get_tweet_count(self, search_terms: Sequence[str]) -> int | None:
         """
-        Given the id, return a generator of tweets associated with the search_term
+        Return the total number of tweets for the tweets associated with the search terms, otherwise None
         """
-        yield from (
-            i["tweet"]
-            for i in self.tweets.find(
-                {"search_terms": {"$in": [search_term]}}, {"tweet": 1}
-            )
+        return self.tweets.count_documents({"search_terms": {"$in": search_terms}})
+
+    def get_tweets(
+        self,
+        search_terms: Sequence[str] | None = None,
+        attributes: list[str] | None = None,
+    ) -> Cursor:
+        """
+        Given the id, return a generator that yields tweet documents associated with a term from the list of search_terms
+        By default, returns the tweet object under the key "tweet", but optionally specify other attributes in the document to return as well
+        """
+        # If search_terms not provided, get all the tweets
+        if search_terms is None:
+            search_terms = [i["_id"] for i in terms_handler.get_search_terms()]
+        # If attributes isn't provided, add the actual tweet object to be returned by default
+        if attributes is None:
+            attributes = []
+        if "tweet" not in attributes:
+            attributes.append("tweet")
+        return self.tweets.find(
+            {"search_terms": {"$in": search_terms}},
+            {key: 1 for key in attributes},
         )
 
-    def set_sentiment(self, sentiment, tweet_id):
+    def set_sentiment(self, sentiment: dict, tweet_id: str) -> bool:
         """
-        Given a sentiment and tweet_id, set the sentiment score in the database
+        Given a sentiment and tweet_id, set the sentiment score for the tweet with tweet_id in the database
         """
         result = self.tweets.update_one(
             {"_id": tweet_id}, {"$set": {"sentiment": sentiment}}
         )
         return result.modified_count > 0
 
-    def get_sentiment(self, tweet_id):
+    def get_sentiment(self, tweet_id: str) -> dict | None:
         """
-        Given a celebrity id and tweet_id, return the current sentiment score in the database
+        Given a tweet_id, return the current sentiment in the database
         If it doesn't exist, return None
         """
-        exists = self.celebrities.find_one(
-            {"_id": tweet_id}, {"_id": 0, "sentiment": 1}
-        )
+        exists = self.tweets.find_one({"_id": tweet_id}, {"_id": 0, "sentiment": 1})
         if exists:
             return exists["sentiment"]
         return None
 
-    def _update_oldest_newest(self, search_term):
+    def update_all_oldest_newest(self) -> None:
         """
-        Update the celebrities database with our current oldest and newest tweet ids
+        For each term in the database, update the oldest and newest tweet ids associated with that term
         """
-        # Get all tweets with the celebrity in their ids list
+        for term in tqdm(
+            terms_handler.get_search_terms(), desc="Finding tweets already in database"
+        ):
+            # Update our new bounds of tweet ids gathered
+            self._update_oldest_newest(term["_id"])
+
+    def _update_oldest_newest(self, search_term: str) -> None:
+        """
+        For a search term, update the oldest_tweet_id and newest_tweet_id in the database for that term
+        """
+        # Get all tweets with the search_term in their search_terms list
         pipeline = [
             {"$match": {"search_terms": search_term}},
             {"$project": {"tweet.id": 1}},
@@ -87,6 +121,7 @@ class TweetsHandler:
         ]
         # Execute the aggregation pipeline and retrieve the result
         result = list(self.tweets.aggregate(pipeline))
+        # Set the data to update from aggregation results
         if result:
             data = {
                 "$set": {
@@ -96,7 +131,7 @@ class TweetsHandler:
             }
         else:
             data = {"$unset": {"oldest_tweet_id": "", "newest_tweet_id": ""}}
-        # Store the minimum and maximum
+        # Update the db document
         terms_handler.search_terms.update_one(
             {"_id": search_term},
             data,
@@ -105,61 +140,46 @@ class TweetsHandler:
 
 
 class SearchTermsHandler:
-    def __init__(self, db):
-        self.search_terms = db["SearchTerms"]
+    def __init__(self, db: Database):
+        """
+        Create an instance. Add and retrieve search terms and associated data
+        """
+        self.search_terms: Collection = db["SearchTerms"]
 
-    def add_term(self, search_term, **kwargs):
+    def add_term(self, search_term: str) -> bool:
         """
-        Add a term to the database. If entry already exists with the term, update information
+        Add a term to the database. If it already exists, do nothing
+        Return True if it is a new term
         """
-        # Store whatever we have available
         data = {"_id": search_term}
-        data.update(kwargs)
-        logger.info(f"Adding/updating search term: {data}")
         # Update the database entry by setting the new data
         res = self.search_terms.update_one(
             {"_id": search_term}, {"$set": data}, upsert=True
         )
-        return True if res.modified_count else False
+        return bool(res.modified_count)
 
-    def get_search_terms(self, attributes):
+    def get_search_terms(self, attributes: list[str] | None = None) -> list[dict]:
         """
-        Returns a list of whatever attributes for all celebrities in the db
+        Return a list of search_term documents from the database
+        By default, returns the term name under the key "_id", but optionally specify other attributes in the document to return as well
         """
+        if attributes is None:
+            attributes = []
         if "_id" not in attributes:
             attributes += "_id"
-        return [i for i in self.search_terms.find({}, {key: 1 for key in attributes})]
-
-    def get_newest_tweet_id(self, search_term):
-        """
-        Given a search term, return the newest tweet id in the database
-        If it doesn't exist, return None
-        """
-        exists = self.search_terms.find_one(
-            {"_id": search_term}, {"_id": 0, "newest_tweet_id": 1}
+        return list(
+            self.search_terms.find(
+                {key: {"$exists": True} for key in attributes},
+                {key: 1 for key in attributes},
+            )
         )
-        if exists:
-            return exists["newest_tweet_id"]
-        return None
-
-    def get_oldest_tweet_id(self, search_term):
-        """
-        Given a search term, return the oldest tweet id in the database
-        If it doesn't exist, return None
-        """
-        exists = self.search_terms.find_one(
-            {"_id": search_term}, {"_id": 0, "oldest_tweet_id": 1}
-        )
-        if exists:
-            return exists["oldest_tweet_id"]
-        return None
 
 
-def connect_to_db():
+def connect_to_db() -> MongoClient:
     """
     Initializes the MongoDB connection and provides API"s for interaction
     """
-    logger.info("Reading database info from config")
+    # logger.info("Reading database info from config")
     # with open("config/mongodb.config", "r") as f:
     #     config = json.load(f)
     #     db_username = config["username"]
@@ -169,7 +189,8 @@ def connect_to_db():
     #         f"mongodb+srv://{db_username}:{db_password}@celebscore.inxw4wt.mongodb.net",
     #         tlsCAFile=certifi.where(),
     #     )
-    client = MongoClient("mongodb://localhost:27017")
+    # Use local database because we ran out of room remotely
+    client = MongoClient("mongodb://127.0.0.1:27017")
     logger.info("Pinging database")
     result = client.admin.command("ping")
     if not result["ok"]:
@@ -179,6 +200,7 @@ def connect_to_db():
     return client
 
 
+# Initialize database connection and handlers
 client = connect_to_db()
 db = client["CelebScoreData"]
 terms_handler = SearchTermsHandler(db)

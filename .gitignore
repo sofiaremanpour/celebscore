@@ -9,3 +9,6 @@ app.log
 #Mongodb config file
 config/*.config
 
+.vscode/settings.json
+map_coords.pickle
+maps/

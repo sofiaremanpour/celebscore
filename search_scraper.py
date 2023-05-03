@@ -1,5 +1,6 @@
-import pandas as pd
+import random
 
+from utils import team_utils
 from utils.database import terms_handler, tweets_handler
 from utils.logging_utils import logger
 from utils.twitter_utils import get_search_results
@@ -7,17 +8,12 @@ from utils.twitter_utils import get_search_results
 
 def update_terms_from_file():
     """
-    Reads search terms to add from the file
-    Finds the ones not in the db, and adds to db
+    Add the search terms that we loaded from the file into the database
     """
-    # Open the list of search terms from the csv file
-    search_data = pd.read_csv("search_terms.csv")
-    search_terms = list(search_data["term"].astype("string"))
-    logger.info(f"Found {len(search_terms)} search terms in file")
     # Add to database
-    for i in search_terms:
+    for i in team_utils.all_terms:
         terms_handler.add_term(i)
-    logger.info(f"{search_terms}")
+    logger.info(f"{team_utils.all_terms}")
 
 
 def search_terms_get_tweets():
@@ -27,13 +23,15 @@ def search_terms_get_tweets():
     """
     # Get the data for each term
     terms = terms_handler.get_search_terms(["oldest_tweet_id", "newest_tweet_id"])
-    # For each term, create a tweet iterator that will get batches of tweets
+    # Randomly shuffle the order of who to get each program run
+    random.shuffle(terms)
+    # For each term, create the tweet iterator that will get batches of tweets
     for t in terms:
         # Find the current bounds of the tweets we have
         oldest_tweet_id = t.get("oldest_tweet_id")
         newest_tweet_id = t.get("newest_tweet_id")
 
-        # Get a batch of tweets at a time, and add to database
+        # Get the iterator from the search function searching for the term
         t["tweet_iterator"] = get_search_results(
             t["_id"],
             oldest_tweet_id=oldest_tweet_id,
@@ -48,6 +46,7 @@ def search_terms_get_tweets():
         for t in terms:
             try:
                 term = t["_id"]
+                # Get the next batch for the term
                 tweet_batch = next(t["tweet_iterator"])
                 if tweet_batch:
                     logger.info(
@@ -56,7 +55,7 @@ def search_terms_get_tweets():
                     gotten = True
                     tweets_handler.add_tweets(tweet_batch, term)
             except StopIteration:
-                # If the generator for the celebrity is out, then just move on
+                # If the generator for the term is out, then just move on
                 t["iterator_exhausted"] = True
                 continue
         if not gotten:
@@ -64,6 +63,11 @@ def search_terms_get_tweets():
 
 
 def main():
+    """
+    Use Twitter search to scrape all visible tweets for all search terms and add to a database
+    Automatically managed resume functionality to not gather duplicate tweets
+    Perform batching to ensure an similar number of searches for all of the terms
+    """
     update_terms_from_file()
     search_terms_get_tweets()
 
