@@ -2,10 +2,11 @@
 pymongo
 twitter
 pandas
-certifi
 tqdm
 folium
 numpy
 transformers
 scipy
 selenium
+nltk
+torch

@@ -2,7 +2,7 @@ import json
 import math
 import time
 from datetime import datetime, timedelta
-from typing import Callable, Iterator, Optional
+from typing import Callable, Iterator
 from urllib.parse import parse_qs, urlparse
 
 import twitter
@@ -15,7 +15,7 @@ from utils.logging_utils import logger
 def oauth_login() -> twitter.Twitter:
     """
     Taken from cookbook
-    Create a twitter API object using keys stored in config
+    Create a twitter API object using keys stored in config/api_keys.config
     """
     with open("config/api_keys.config", "r") as f:
         config: dict = json.load(f)
@@ -79,14 +79,11 @@ def rate_limit_safe(twitter_func: Callable) -> Callable:
             except Exception as e:
                 logger.error(f"Other error encountered, retrying: {repr(e)}")
 
+    # Return the new wrapped function
     return decorated
 
 
 twitter_api = oauth_login()
-_user_lookup = rate_limit_safe(twitter_api.users.show)
-_users_lookup = rate_limit_safe(twitter_api.users.lookup)
-_followers_list = rate_limit_safe(twitter_api.followers.list)
-_followers_ids = rate_limit_safe(twitter_api.followers.ids)
 _search_tweets = rate_limit_safe(twitter_api.search.tweets)
 
 
@@ -121,21 +118,21 @@ _search_tweets = rate_limit_safe(twitter_api.search.tweets)
 
 def get_search_results(
     query: str,
-    oldest_tweet_id: Optional[int] = None,
-    newest_tweet_id: Optional[int] = None,
+    oldest_tweet_id: int | None = None,
+    newest_tweet_id: int | None = None,
 ) -> Iterator[list[dict]]:
     """
-    Generator that yields a batch of tweet objects from the search of string
+    Generator that yields a batch of tweet objects from the search of query
     Only search more recently then the newest_tweet_id we have, and older than the oldest_tweet_id
-    Tweets are yielded in a way so that they are contiguous from the tweets already gathered to prevent errors
+    Tweets are yielded in a way so that they are contiguous from the tweets already gathered
     """
 
     def search_helper(
-        query: str, since_id: Optional[int] = None, max_id: Optional[int | float] = None
+        query: str, since_id: int | None = None, max_id: int | float | None = None
     ) -> Iterator[list[dict]]:
         """
         Perform a search of query from the max_id to the since_id
-        Yield tweets in batches when doing so doesn't break the continuous interval
+        Yield tweets in a batche when doing so doesn't break the continuous interval
         """
         # Store the tweets in a list
         since_id = since_id if since_id else 0
@@ -151,15 +148,16 @@ def get_search_results(
                 since_id=since_id,
                 max_id=max_id,
             )
-            # If we are out of tweets, stop
             new_tweets = tweet_data["statuses"]
-            # If we are searching after a certain date, only return the tweets at the end
+            # If we are searching before the current oldest tweet, its okay to yield a batch as it comes
+            # If we are searching after the current newest tweet, we must wait until we have the whole interval from now until then
             if new_tweets:
                 if since_id:
                     tweets += new_tweets
                 else:
                     yield new_tweets
             else:
+                # If we are out of tweets, return the ones we haven't yet
                 if since_id:
                     yield tweets
                     return
@@ -174,9 +172,11 @@ def get_search_results(
 
     # Perform a search from the oldest tweet available to the oldest_tweet_id in the db
     logger.info(f"Searching: {query} from the oldest available to {oldest_tweet_id}")
+    # Yield tweet batches from the generator
     yield from search_helper(query, max_id=oldest_tweet_id)
 
     if newest_tweet_id:
         # Perform a search from the newest_tweet_id in db to the present
         logger.info(f"Searching: {query} from {newest_tweet_id} to the present")
+        # Yield a single mega batch from the generator to preserve the contiguous interval
         yield from search_helper(query, since_id=newest_tweet_id)
