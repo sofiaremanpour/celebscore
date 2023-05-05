@@ -1,28 +1,47 @@
 
-# CelebScore
+# NBA Playoff Predictor
 
 ## Features
 
-Our celebrity obsession analysis tool, “CelebScores” is a project aimed at determining how much the followers of a celebrity discuss that celebrity. Within our project, we will look at tweets that have been tweeted by followers of popular celebrities, such as actors, artists, and politicians, and create a score based on how “obsessed” they are with that celebrity, measured by how often they tweet about them. In addition, we will perform sentiment analysis on tweets regarding that celebrity, creating a score that measures how well liked the celebrity is by their followers.
-
+Our NBA team playoff predictor scrapes tweets from Twitter that are found from searching for the team names. From there, we create a heatmap by extracting the locations of the tweets, and perform sentiment analysis on the tweets to score each team by the proportion that are positive, negative, and neutral.
   
+## Project Setup
 
-In the end, we will create a front end display through a website that will display this data visually. Celebrities will be ranked by their followers' obsession score, as well as how well liked they are.
+### Packages and MongoDB
+This project makes use of a MongoDB server and various libraries. To install all of the required libraries, run ```pip -r requirements.txt```. The MongoDB server is expected to be running locally, however it can be modified through the code commented out in the ```connect_to_db()``` function in ```database.py```.
 
-  
+### Config files
+
+To avoid uploading sensitive information to github, I've moved the configuration for twitter and mongodb to the config folder, where it won't be uploaded. For Twitter, it is easy, just look at the template config file, and add your keys to the correct locations, and remove the ```.template``` from the name. For MongoDB, the process is the same (although not required when using a unauthenticated local server)
 
 ## Project Structure
 
-### Python
+### Utils
 
 The program is broken up into interacting components that allows code reuse for the different phases of the project.
 
-The files ```twitter_utils.py```, ```logging_utils.py```, and ```database.py``` contain functions meant to be used whenever you need to access the twitter api, the logger for debugging, or database data respectively.
+The files under the ```utils``` directory: ```twitter_utils.py```, ```logging_utils.py```, ```team_utils.py``` and ```database.py``` contain functions that are helpful for multiple aspects of the project
 
-The first section, ```celebrity_scraper.py``` finds the twitter handles of celebrities in MongoDB collection, and update any missing info by looking up their twitter user. This allows us to add things to the database and have them automatically become part of the system. See below for more info on connecting with MongoDB.
+#### ```twitter_utils.py```
+This file sets up the connection with the Twitter API, and provides the function get_search_results(...), which allows you to input a particular query to search for, as well as the bounds of time you want tweets from using the optional parameters oldest_tweet_id and newest_tweet_id. It returns a generator that yields tweets in batches.
 
-  
+#### ```logging_utils.py```
+This file just sets up the global logger, so that it can be imported and used in all files.
 
-## Config files
+#### ```team_utils.py```
+This file loads the teams we want to search for from the csv file ```search_terms.csv```, and creates various lists for the main team name, and an alternate name
 
-To avoid uploading sensitive information to github, I've moved the configuration for twitter and mongodb to the config folder, where it won't be uploaded. For twitter, it is easy, just look at the template config file, and add your keys to the correct locations, and remove the ```.template``` from the name. For MongoDB, you need an account to access the database, which I can make for you if you contact me.
+#### ```database.py```
+This file initializes a MongoDB database connection to a local MongoDB server, and provides two handler objects for interfacing with database information
+
+### Main files
+There are 3 main files that serve as the entrypoint for different phases of the project.
+
+#### ```search_scraper.py```
+This file initializes terms from the file into the database, and then starts scraping tweets by searching the queries. Every batch that the tweet generator yields is immediately put into the database, and will only search from tweets not within the currently gather bounds for any term.
+
+#### ```map_creator.py```
+This file gathers the locations from tweets in the database, and creates a heatmap for each team using the tweets associated with it. It also saves the locations to a json file ```map_coords.json``` to cache the locations instead of regathering from the database each time, chosen through a selection menu.
+
+#### ```sentiment_analysis.py```
+This file runs sentiment analysis through 3 sentiment analyzers on all of the tweets in the database, and then performs calculations to count the number of labels assigned for each team. It then generates scores which are written to the csv files under the ```/scores``` directory.
