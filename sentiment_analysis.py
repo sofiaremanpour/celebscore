@@ -1,4 +1,6 @@
+import pandas as pd
 import json
+from collections import defaultdict
 from typing import Literal, Sequence
 
 import nltk
@@ -23,6 +25,7 @@ logger.info("Loading sentiment analysis resources")
 # Roberta model sentiment analysis
 ROBERTA_URL = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 roberta_tokenizer = AutoTokenizer.from_pretrained(ROBERTA_URL)
+
 roberta_model = AutoModelForSequenceClassification.from_pretrained(ROBERTA_URL)
 roberta_config = AutoConfig.from_pretrained(ROBERTA_URL)
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -195,49 +198,68 @@ sentiment_funcs = {
 }
 
 
-def find_sentiment_consensus(sentiment: dict) -> Literal["pos", "neu", "neg"] | None:
+def get_max_label(sentiment: dict) -> Literal["pos", "neu", "neg"]:
+    label = max(sentiment.items(), key=lambda x: x[1])[0]
+    if label == "pos" or label == "positive":
+        return "pos"
+    if label == "neg" or label == "negative":
+        return "neg"
+    return "neu"
+
+
+def get_averaged_label(sentiment: dict) -> str:
     """
-    Given a sentiment object with all analyzers, return the rating if they all agree, otherwise None
+    Given a sentiment object with all analyzers, return the label from the average of scores from each analyzer
     """
     # Find the label with the highest score for each analyzer
-    sentiment_roberta = max(sentiment["roberta"].items(), key=lambda x: x[1])[0]
-    sentiment_vader = max(sentiment["vader"].items(), key=lambda x: x[1])[0]
-    sentiment_sentiwordnet = max(sentiment["sentiwordnet"].items(), key=lambda x: x[1])[
-        0
-    ]
+    averaged_scores = {
+        "pos": (
+            sum(
+                (
+                    sentiment["roberta"]["positive"],
+                    sentiment["vader"]["pos"],
+                    sentiment["sentiwordnet"]["positive"],
+                )
+            )
+            / 3
+        ),
+        "neg": (
+            sum(
+                (
+                    sentiment["roberta"]["negative"],
+                    sentiment["vader"]["neg"],
+                    sentiment["sentiwordnet"]["negative"],
+                )
+            )
+            / 3
+        ),
+        "neu": (
+            sum(
+                (
+                    sentiment["roberta"]["neutral"],
+                    sentiment["vader"]["neu"],
+                    sentiment["sentiwordnet"]["objectivity"],
+                )
+            )
+            / 3
+        ),
+    }
+    return max(averaged_scores.items(), key=lambda x: x[1])[0]
 
-    if (
-        sentiment_roberta == "positive"
-        and sentiment_vader == "pos"
-        and sentiment_sentiwordnet == "positive"
-    ):
-        return "pos"
-    if (
-        sentiment_roberta == "neutral"
-        and sentiment_vader == "neu"
-        and sentiment_sentiwordnet == "objectivity"
-    ):
-        return "neu"
-    if (
-        sentiment_roberta == "negative"
-        and sentiment_vader == "neg"
-        and sentiment_sentiwordnet == "negative"
-    ):
-        return "neg"
-    # If they don't agree, return None
-    return None
 
-
-def find_counts() -> dict[str, dict[str, int]]:
+def find_counts() -> dict[str, dict[str, dict[str, int]]]:
     """
-    Return a dict mapping each team_name to a dict of pos, neu, neg counts
-    Only count the tweets that have matching sentiment by all analyzers
+    Return a dict mapping each team_name to a dict of analyzers to dict of counts for each label
+    Include a "average" entry that record the counts of labels averaged for all analyzers
+    Include a "agreed" entry that records the counts of labels that all the analyzers agree on
     """
     # Create dict of team_name to counts
-    counts: dict[str, dict[str, int]] = {}
+    counts: dict[str, dict[str, dict[str, int]]] = {}
     for team_tuple in tqdm(team_utils.team_tuples, desc="Teams", total=16):
         # Define a dictionary of counts for the team
-        team_counts = {"pos": 0, "neu": 0, "neg": 0}
+        team_counts: dict[str, dict[str, int]] = defaultdict(
+            lambda: defaultdict(lambda: 0)
+        )
         # Iterate a tweet at a time
         for tweet in tqdm(
             tweets_handler.get_tweets(team_tuple, ["sentiment"]),
@@ -249,49 +271,63 @@ def find_counts() -> dict[str, dict[str, int]]:
             # If the tweet document has no sentiment, skip it
             if "sentiment" not in tweet:
                 continue
-            sentiment: dict = tweet["sentiment"]
-            # Find the agreed sentiment or None if they didn't agree
-            final_sentiment = find_sentiment_consensus(sentiment)
-            # If they did agree, add 1 to the count for that label
-            if final_sentiment:
-                team_counts[final_sentiment] += 1
+            sentiment: dict[str, dict[str, float]] = tweet["sentiment"]
+            labels = {name: get_max_label(scores) for name, scores in sentiment.items()}
+            # Add the count for each of the analyzers
+            for analyzer_name in sentiment:
+                team_counts[analyzer_name][labels[analyzer_name]] += 1
+            # Add the count for the average
+            team_counts["average"][get_averaged_label(sentiment)] += 1
+            # Add the count for the agreed
+            if all((labels["roberta"] == label for label in labels.values())):
+                team_counts["agreed"][labels["roberta"]] += 1
+
         # Add the count dictionary to be mapped to the team_name
         counts[team_tuple[0]] = team_counts
     # Return the final counts
     return counts
 
 
-def save_counts(counts: dict[str, dict[str, int]]) -> None:
+def save_counts(filename: str, counts: dict[str, dict[str, dict[str, int]]]) -> None:
     """
-    Save the counts of pos, neu, neg for each team to the file counts.json
+    Save the counts of pos, neu, neg for each team to the file
     """
-    with open("counts.json", "w") as f:
+    with open(filename, "w") as f:
         json.dump(counts, f)
 
 
-def save_scores(scores: dict[str, dict[str, int]]) -> None:
+def save_scores(scores: dict[str, dict[str, dict[str, int]]]) -> None:
     """
-    Save the scores for each team to the file scores.json
+    Save the scores into a csv for each analyer to the file scores.json
     """
-    with open("scores.json", "w") as f:
-        json.dump(scores, f)
+    # Modify scores to be a mapping from the analyzer first, and the team mapped to the label scores
+    new_scores = defaultdict(lambda: {})
+    for team_name, analyzer_scores in scores.items():
+        for analyzer_name, label_scores in analyzer_scores.items():
+            new_scores[analyzer_name][team_name] = label_scores
+
+    # Save a CSV for each using pandas
+    for analyzer_name, team_scores in new_scores.items():
+        df = pd.DataFrame.from_dict(team_scores, orient="index")
+        df.to_csv(f"scores/{analyzer_name}.csv")
 
 
-def find_scores(counts: dict[str, dict[str, int]]) -> dict[str, dict[str, int]]:
+def find_scores(
+    counts: dict[str, dict[str, dict[str, int]]]
+) -> dict[str, dict[str, dict[str, int]]]:
     """
     For each team, calculate the pos, neu, neg score using the counts
     """
-    scores = {}
-    for team_name, team_counts in counts.items():
-        # Find the total count for the team
-        total = sum(team_counts.values())
-        # Calculate the score using their sentiment counts
-        team_score = {
-            "pos": team_counts["pos"] / total,
-            "neu": team_counts["neu"] / total,
-            "neg": team_counts["neg"] / total,
-        }
-        scores[team_name] = team_score
+    scores = defaultdict(lambda: {})
+    for team_name, analyzer_counts in counts.items():
+        for analyzer_name, label_counts in analyzer_counts.items():
+            # Find the total count for the team
+            total = sum(label_counts.values())
+            # Calculate the score using their sentiment counts
+            analyzer_score = {
+                label: score / total for label, score in label_counts.items()
+            }
+            scores[team_name][analyzer_name] = analyzer_score
     # Return the final mapping
     return scores
 
@@ -308,11 +344,12 @@ def main():
         # Calculate the sentiment for all of the teams
         calculate_sentiments(team_utils.all_terms)
     # Tally the sentiments for each team, save, score, save
+    logger.info("Finding counts")
     counts = find_counts()
-    save_counts(counts)
+    save_counts("counts.json", counts)
     scores = find_scores(counts)
     save_scores(scores)
-    logger.info(scores)
+    logger.info(json.dumps(scores, indent=2))
 
 
 if __name__ == "__main__":
